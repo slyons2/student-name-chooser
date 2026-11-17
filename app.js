@@ -13,7 +13,12 @@ const palette = [
 
 const savedClassesKey = "student-picker-classes";
 const currentRosterKey = "student-picker-current-roster";
+const seededRosterMigrationKey = "student-picker-seeded-roster-migration";
 const savedClassLifetimeMs = 365 * 24 * 60 * 60 * 1000;
+const seededRosters = [
+  ["Avery", "Maya", "Jordan", "Noah", "Sofia", "Leo"],
+  ["Avery", "Maya", "Jordan"],
+];
 
 const state = {
   names: loadCurrentRoster(),
@@ -123,10 +128,16 @@ function createSavedClass(roster) {
 
 function loadCurrentRoster() {
   try {
+    const seededRosterMigrationDone =
+      localStorage.getItem(seededRosterMigrationKey) === "done";
     const savedRoster = JSON.parse(localStorage.getItem(currentRosterKey) || "null");
-    if (!savedRoster || typeof savedRoster !== "object") return [];
+    if (!savedRoster || typeof savedRoster !== "object") {
+      localStorage.setItem(seededRosterMigrationKey, "done");
+      return [];
+    }
     if (!Number.isFinite(savedRoster.expiresAt) || savedRoster.expiresAt <= Date.now()) {
       localStorage.removeItem(currentRosterKey);
+      localStorage.setItem(seededRosterMigrationKey, "done");
       return [];
     }
     if (
@@ -134,12 +145,27 @@ function loadCurrentRoster() {
       !savedRoster.names.every((name) => typeof name === "string")
     ) {
       localStorage.removeItem(currentRosterKey);
+      localStorage.setItem(seededRosterMigrationKey, "done");
       return [];
     }
+    if (!seededRosterMigrationDone && isSeededRoster(savedRoster.names)) {
+      localStorage.removeItem(currentRosterKey);
+      localStorage.setItem(seededRosterMigrationKey, "done");
+      return [];
+    }
+    localStorage.setItem(seededRosterMigrationKey, "done");
     return savedRoster.names;
   } catch {
     return [];
   }
+}
+
+function isSeededRoster(names) {
+  return seededRosters.some(
+    (seededRoster) =>
+      seededRoster.length === names.length &&
+      seededRoster.every((name, index) => name === names[index]),
+  );
 }
 
 function saveCurrentRoster() {
