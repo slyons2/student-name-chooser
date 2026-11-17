@@ -12,10 +12,11 @@ const palette = [
 ];
 
 const savedClassesKey = "student-picker-classes";
+const currentRosterKey = "student-picker-current-roster";
 const savedClassLifetimeMs = 365 * 24 * 60 * 60 * 1000;
 
 const state = {
-  names: ["Avery", "Maya", "Jordan", "Noah", "Sofia", "Leo"],
+  names: loadCurrentRoster(),
   rotation: 0,
   spinning: false,
   removeWinner: false,
@@ -120,6 +121,39 @@ function createSavedClass(roster) {
   };
 }
 
+function loadCurrentRoster() {
+  try {
+    const savedRoster = JSON.parse(localStorage.getItem(currentRosterKey) || "null");
+    if (!savedRoster || typeof savedRoster !== "object") return [];
+    if (!Number.isFinite(savedRoster.expiresAt) || savedRoster.expiresAt <= Date.now()) {
+      localStorage.removeItem(currentRosterKey);
+      return [];
+    }
+    if (
+      !Array.isArray(savedRoster.names) ||
+      !savedRoster.names.every((name) => typeof name === "string")
+    ) {
+      localStorage.removeItem(currentRosterKey);
+      return [];
+    }
+    return savedRoster.names;
+  } catch {
+    return [];
+  }
+}
+
+function saveCurrentRoster() {
+  const savedAt = Date.now();
+  localStorage.setItem(
+    currentRosterKey,
+    JSON.stringify({
+      names: state.names,
+      savedAt,
+      expiresAt: savedAt + savedClassLifetimeMs,
+    }),
+  );
+}
+
 function saveSavedClasses() {
   localStorage.setItem(savedClassesKey, JSON.stringify(state.savedClasses));
 }
@@ -151,6 +185,7 @@ function addNames(incomingNames) {
       seen.add(key);
     }
   });
+  saveCurrentRoster();
   render();
 }
 
@@ -163,11 +198,13 @@ function shuffleNames() {
     ];
   }
   seedChip.textContent = "Shuffled";
+  saveCurrentRoster();
   render();
 }
 
 function removeName(nameToRemove) {
   state.names = state.names.filter((name) => name !== nameToRemove);
+  saveCurrentRoster();
   render();
 }
 
@@ -331,15 +368,21 @@ function showWinnerToast(name) {
   winnerToast.classList.add("show");
 }
 
+function getWinnerIndexFromRotation(rotation) {
+  const segmentDegrees = 360 / state.names.length;
+  const pointerAngle = normalizeDegrees(-rotation);
+  return Math.floor(pointerAngle / segmentDegrees) % state.names.length;
+}
+
 function spinWheel() {
   if (state.spinning || state.names.length < 2) return;
 
   state.spinning = true;
   renderControls();
 
-  const winnerIndex = Math.floor(randomUnit() * state.names.length);
+  const targetIndex = Math.floor(randomUnit() * state.names.length);
   const segmentDegrees = 360 / state.names.length;
-  const segmentCenter = winnerIndex * segmentDegrees + segmentDegrees / 2;
+  const segmentCenter = targetIndex * segmentDegrees + segmentDegrees / 2;
   const safeLandingOffset = (randomUnit() - 0.5) * segmentDegrees * 0.5;
   const landingAngle = segmentCenter + safeLandingOffset;
   const fullSpins = 6 + Math.floor(randomUnit() * 4);
@@ -349,12 +392,14 @@ function spinWheel() {
     fullSpins * 360 + normalizeDegrees(targetAtPointer - currentRotation);
 
   state.rotation += extraRotation;
-  seedChip.textContent = `Pick ${winnerIndex + 1} of ${state.names.length}`;
+  seedChip.textContent = "Spinning";
   wheelWrap.style.transform = `rotate(${state.rotation}deg)`;
 
   window.setTimeout(() => {
+    const winnerIndex = getWinnerIndexFromRotation(state.rotation);
     const pickedName = state.names[winnerIndex];
     winnerName.textContent = pickedName;
+    seedChip.textContent = `Picked ${pickedName}`;
     showWinnerToast(pickedName);
     winnerStrip.classList.remove("winner-pop");
     void winnerStrip.offsetWidth;
@@ -362,6 +407,7 @@ function spinWheel() {
     burstConfetti();
     if (state.removeWinner) {
       state.names.splice(winnerIndex, 1);
+      saveCurrentRoster();
       seedChip.textContent = `${pickedName} removed`;
     }
     state.spinning = false;
@@ -445,12 +491,14 @@ sortButton.addEventListener("click", () => {
     first.localeCompare(second, undefined, { sensitivity: "base" }),
   );
   seedChip.textContent = "Sorted";
+  saveCurrentRoster();
   render();
 });
 
 clearButton.addEventListener("click", () => {
   state.names = [];
   resetPickState();
+  saveCurrentRoster();
   render();
 });
 
@@ -479,6 +527,7 @@ loadClassButton.addEventListener("click", () => {
   state.names = [...savedClass.roster];
   resetPickState(`${state.selectedClass} loaded`);
   classStatus.textContent = `${state.selectedClass} loaded.`;
+  saveCurrentRoster();
   render();
 });
 
