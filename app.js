@@ -11,20 +11,8 @@ const palette = [
   "#c99bd6",
 ];
 
-const sampleNames = [
-  "Avery",
-  "Maya",
-  "Jordan",
-  "Noah",
-  "Sofia",
-  "Leo",
-  "Iris",
-  "Kai",
-  "Nina",
-  "Mateo",
-];
-
 const savedClassesKey = "student-picker-classes";
+const savedClassLifetimeMs = 365 * 24 * 60 * 60 * 1000;
 
 const state = {
   names: ["Avery", "Maya", "Jordan", "Noah", "Sofia", "Leo"],
@@ -53,7 +41,6 @@ const deleteClassButton = document.querySelector("#deleteClassButton");
 const classStatus = document.querySelector("#classStatus");
 const shuffleButton = document.querySelector("#shuffleButton");
 const sortButton = document.querySelector("#sortButton");
-const sampleButton = document.querySelector("#sampleButton");
 const clearButton = document.querySelector("#clearButton");
 const spinButton = document.querySelector("#spinButton");
 const themeToggle = document.querySelector("#themeToggle");
@@ -76,17 +63,61 @@ function loadSavedClasses() {
   try {
     const saved = JSON.parse(localStorage.getItem(savedClassesKey) || "{}");
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
-    return Object.fromEntries(
-      Object.entries(saved).filter(
-        ([name, roster]) =>
-          typeof name === "string" &&
-          Array.isArray(roster) &&
-          roster.every((student) => typeof student === "string"),
-      ),
-    );
+    const now = Date.now();
+    const normalizedClasses = {};
+    let shouldResave = false;
+
+    Object.entries(saved).forEach(([name, value]) => {
+      if (typeof name !== "string") return;
+
+      const savedAt =
+        value && typeof value === "object" && !Array.isArray(value)
+          ? Number(value.savedAt)
+          : now;
+      const expiresAt =
+        value && typeof value === "object" && !Array.isArray(value)
+          ? Number(value.expiresAt)
+          : now + savedClassLifetimeMs;
+      const roster = Array.isArray(value) ? value : value?.roster;
+
+      if (
+        !Array.isArray(roster) ||
+        !roster.every((student) => typeof student === "string")
+      ) {
+        shouldResave = true;
+        return;
+      }
+
+      if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+        shouldResave = true;
+        return;
+      }
+
+      normalizedClasses[name] = {
+        roster,
+        savedAt: Number.isFinite(savedAt) ? savedAt : now,
+        expiresAt,
+      };
+      if (Array.isArray(value)) shouldResave = true;
+    });
+
+    if (shouldResave) {
+      localStorage.setItem(savedClassesKey, JSON.stringify(normalizedClasses));
+    }
+
+    return normalizedClasses;
   } catch {
     return {};
   }
+}
+
+function createSavedClass(roster) {
+  const savedAt = Date.now();
+  return {
+    roster: [...roster],
+    savedAt,
+    expiresAt: savedAt + savedClassLifetimeMs,
+  };
 }
 
 function saveSavedClasses() {
@@ -417,13 +448,6 @@ sortButton.addEventListener("click", () => {
   render();
 });
 
-sampleButton.addEventListener("click", () => {
-  state.names = [...sampleNames];
-  winnerName.textContent = "No winner yet";
-  seedChip.textContent = "Sample loaded";
-  render();
-});
-
 clearButton.addEventListener("click", () => {
   state.names = [];
   resetPickState();
@@ -435,10 +459,10 @@ classSaveForm.addEventListener("submit", (event) => {
   const className = classNameInput.value.trim().replace(/\s+/g, " ");
   if (!className || !state.names.length) return;
 
-  state.savedClasses[className] = [...state.names];
+  state.savedClasses[className] = createSavedClass(state.names);
   state.selectedClass = className;
   classNameInput.value = "";
-  classStatus.textContent = `${className} saved.`;
+  classStatus.textContent = `${className} saved for one year on this computer.`;
   saveSavedClasses();
   render();
 });
@@ -449,10 +473,10 @@ classSelect.addEventListener("change", () => {
 });
 
 loadClassButton.addEventListener("click", () => {
-  const roster = state.savedClasses[state.selectedClass];
-  if (!roster) return;
+  const savedClass = state.savedClasses[state.selectedClass];
+  if (!savedClass) return;
 
-  state.names = [...roster];
+  state.names = [...savedClass.roster];
   resetPickState(`${state.selectedClass} loaded`);
   classStatus.textContent = `${state.selectedClass} loaded.`;
   render();
